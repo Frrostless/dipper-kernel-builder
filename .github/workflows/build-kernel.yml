@@ -127,22 +127,10 @@ jobs:
 
           # Fix: add stpcpy implementation for Clang (GCC builtin not available in Clang)
           echo "Applying: stpcpy fix"
-          python3 << 'EOF'
-          with open('lib/string.c', 'r') as f:
-              content = f.read()
-          func = '''
-          char *stpcpy(char *dest, const char *src)
-          {
-          \twhile ((*dest++ = *src++) != '\\0')
-          \t\t/* nothing */;
-          \treturn --dest;
-          }
-          EXPORT_SYMBOL(stpcpy);
-          '''
-          content = content.replace('EXPORT_SYMBOL(strcpy);', 'EXPORT_SYMBOL(strcpy);' + func)
-          with open('lib/string.c', 'w') as f:
-              f.write(content)
-          EOF
+          base64 -d > /tmp/add_stpcpy.py << 'PYEOF'
+d2l0aCBvcGVuKCdsaWIvc3RyaW5nLmMnLCAncicpIGFzIGY6CiAgICBjb250ZW50ID0gZi5yZWFkKCkKZnVuYyA9ICcnJwpjaGFyICpzdHBjcHkoY2hhciAqZGVzdCwgY29uc3QgY2hhciAqc3JjKQp7Cgl3aGlsZSAoKCpkZXN0KysgPSAqc3JjKyspICE9ICdcMCcpCgkJLyogbm90aGluZyAqLzsKCXJldHVybiAtLWRlc3Q7Cn0KRVhQT1JUX1NZTUJPTChzdHBjcHkpOwonJycKY29udGVudCA9IGNvbnRlbnQucmVwbGFjZSgnRVhQT1JUX1NZTUJPTChzdHJjcHkpOycsICdFWFBPUlRfU1lNQk9MKHN0cmNweSk7JyArIGZ1bmMpCndpdGggb3BlbignbGliL3N0cmluZy5jJywgJ3cnKSBhcyBmOgogICAgZi53cml0ZShjb250ZW50KQ==
+          PYEOF
+          python3 /tmp/add_stpcpy.py
 
       - name: Copy config fragments
         run: |
@@ -164,7 +152,7 @@ jobs:
           rm -f ~/toolchains/proton-12/bin/as
 
           BUILD_OPTIONS=(
-            -j"$(nproc)"
+            -j"\$(nproc)"
             ARCH=arm64
             CC=clang
             HOSTCC=gcc
@@ -181,7 +169,7 @@ jobs:
           make "${BUILD_OPTIONS[@]}" olddefconfig
 
           echo "=== Kernel version: $(make "${BUILD_OPTIONS[@]}" kernelversion) ==="
-          echo "=== Compiling with $(nproc) threads ==="
+          echo "=== Compiling with \$(nproc) threads ==="
           make "${BUILD_OPTIONS[@]}" Image
 
           # Copy output
