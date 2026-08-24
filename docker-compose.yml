@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  kernel-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dipper-kernel-builder
+    privileged: true
+    stdin_open: true
+    tty: true
+    volumes:
+      - kernel-output:/home/kernel-builder/output
+      - ./scripts:/home/kernel-builder/scripts
+      - ./config:/home/kernel-builder/config
+    environment:
+      - KBUILD_BUILD_USER=dipper-builder
+      - KERNEL_BRANCH=dipper-q-oss
+      - DEFCONFIG=dipper_user_defconfig
+
+volumes:
+  kernel-output:
