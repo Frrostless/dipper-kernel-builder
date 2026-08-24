@@ -140,6 +140,9 @@ jobs:
           export PATH="$HOME/toolchains/proton-12/bin:$HOME/toolchains/aarch64-linaro-7.5/bin:$HOME/toolchains:$PATH"
           export LD_LIBRARY_PATH="$HOME/toolchains/proton-12/lib:$HOME/toolchains/proton-12/lib64:${LD_LIBRARY_PATH:-}"
 
+          # Remove Proton Clang's 'as' to force Clang integrated assembler
+          rm -f ~/toolchains/proton-12/bin/as
+
           BUILD_OPTIONS=(
             -j"$(nproc)"
             ARCH=arm64
@@ -180,3 +183,4 @@ jobs:
           name: dipper-kernel-config
           path: ~/output/kernel.config
           retention-days: 30
+concurrency: 
