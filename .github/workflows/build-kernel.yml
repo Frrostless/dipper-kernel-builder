@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       kernel_branch:
-        description: 'Xiaomi kernel branch'
+        description: 'Xiaomi kernel branch (dipper-o-oss / dipper-p-oss / dipper-q-oss)'
         required: false
         default: 'dipper-q-oss'
         type: choice
@@ -17,6 +17,11 @@ on:
         required: false
         default: 'dipper_user_defconfig'
         type: string
+      menustuff:
+        description: 'Disable menuconfig (always yes)'
+        required: false
+        default: 'true'
+        type: boolean
 
 env:
   KBUILD_BUILD_USER: github-actions
@@ -46,21 +51,27 @@ jobs:
           mkdir -p ~/toolchains
           cd ~/toolchains
           git clone --depth=1 https://github.com/ravindu644/proton-12.git proton-12
+          echo "Proton Clang version:"
           ~/toolchains/proton-12/bin/clang --version | head -1
 
       - name: Setup Linaro GCC 7.5
         run: |
           cd ~/toolchains
-          curl -Lf -o linaro.tar.xz "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/linaro-aarch64-7.5.tar.xz"
+          curl -Lf -o linaro.tar.xz \
+            "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/linaro-aarch64-7.5.tar.xz"
           mkdir -p aarch64-linaro-7.5
           tar -xJf linaro.tar.xz -C aarch64-linaro-7.5 --strip-components=1
           rm linaro.tar.xz
+          echo "Linaro GCC version:"
           ~/toolchains/aarch64-linaro-7.5/bin/aarch64-linux-gnu-gcc --version | head -1
 
       - name: Setup magiskboot
         run: |
           cd ~/toolchains
-          MAGISK_URL=$(curl -sL https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | select(.name | test("Magisk-v.*\.apk$")) | .browser_download_url' | head -1)
+          MAGISK_URL=$(curl -sL https://api.github.com/repos/topjohnwu/Magisk/releases/latest \
+            | jq -r '.assets[] | select(.name | test("Magisk-v.*\.apk$")) | .browser_download_url' \
+            | head -1)
+          echo "Magisk URL: $MAGISK_URL"
           curl -Lf -o /tmp/magisk.apk "$MAGISK_URL"
           cd /tmp && unzip -o magisk.apk "lib/x86_64/libmagiskboot.so"
           cp lib/x86_64/libmagiskboot.so ~/toolchains/magiskboot
@@ -69,27 +80,44 @@ jobs:
 
       - name: Clone Xiaomi Mi 8 kernel source
         run: |
-          git clone --depth=1 -b "$KERNEL_BRANCH" https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git ~/kernel_src
+          git clone --depth=1 -b "$KERNEL_BRANCH" \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git ~/kernel_src
           cd ~/kernel_src
-          make kernelversion 2>/dev/null || head -5 Makefile
+          echo "Kernel version: $(make kernelversion 2>/dev/null || cat Makefile | head -5)"
+          echo "Defconfig: $DEFCONFIG"
 
       - name: Download and apply patches
         run: |
           cd ~/kernel_src
           mkdir -p ~/patches
+
+          # Droidspaces non-GKI patches
           DROID_BASE="https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI"
+
           curl -Lf -o ~/patches/droid_01.patch "$DROID_BASE/01.fix_kernel_panic_in_xt_qtaguid.patch" 2>/dev/null || true
           curl -Lf -o ~/patches/droid_02.patch "$DROID_BASE/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch" 2>/dev/null || true
+
           for p in ~/patches/droid_*.patch; do
             [ -f "$p" ] || continue
             echo "Applying: $p"
-            patch -p1 --dry-run < "$p" 2>/dev/null && patch -p1 < "$p" || echo "  Patch $p skipped"
+            patch -p1 --dry-run < "$p" 2>/dev/null && patch -p1 < "$p" \
+              || echo "  Patch $p skipped (already applied or not applicable)"
           done
+
+          # Build fix patches
           FIX_BASE="https://raw.githubusercontent.com/ravindu644/Android-Kernel-Tutorials/main/patches"
-          for p in "009.fix-Werror.patch" "018.yylloc.patch" "017.nuke_dirty_string.patch"; do
+          FIX_PATCHES=(
+            "009.fix-Werror.patch"
+            "018.yylloc.patch"
+            "017.nuke_dirty_string.patch"
+          )
+
+          for p in "${FIX_PATCHES[@]}"; do
+            echo "Downloading: $p"
             curl -Lf -o ~/patches/"$p" "$FIX_BASE/$p" 2>/dev/null || { echo "  Download failed: $p"; continue; }
             echo "Applying: $p"
-            patch -p1 --dry-run < ~/patches/"$p" 2>/dev/null && patch -p1 < ~/patches/"$p" || echo "  Patch $p skipped"
+            patch -p1 --dry-run < ~/patches/"$p" 2>/dev/null && patch -p1 < ~/patches/"$p" \
+              || echo "  Patch $p skipped (already applied or not applicable)"
           done
 
       - name: Copy config fragments
@@ -98,19 +126,40 @@ jobs:
           mkdir -p arch/arm64/configs
           cp config/droidspaces.config arch/arm64/configs/
           cp config/custom.config arch/arm64/configs/
+          echo "Config files in arch/arm64/configs/:"
+          ls -la arch/arm64/configs/ | grep -E "droidspaces|custom|dipper"
 
       - name: Build kernel
         run: |
           cd ~/kernel_src
           export PATH="$HOME/toolchains/proton-12/bin:$HOME/toolchains/aarch64-linaro-7.5/bin:$HOME/toolchains:$PATH"
           export LD_LIBRARY_PATH="$HOME/toolchains/proton-12/lib:$HOME/toolchains/proton-12/lib64:${LD_LIBRARY_PATH:-}"
-          BUILD_OPTIONS=(-j"$(nproc)" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- O="$HOME/kernel_src/out")
+
+          BUILD_OPTIONS=(
+            -j"$(nproc)"
+            ARCH=arm64
+            CC=clang
+            CROSS_COMPILE=aarch64-linux-gnu-
+            CLANG_TRIPLE=aarch64-linux-gnu-
+            O="$HOME/kernel_src/out"
+          )
+
+          echo "=== Generating .config ==="
           make "${BUILD_OPTIONS[@]}" "$DEFCONFIG" droidspaces.config custom.config
+
+          echo "=== Running olddefconfig ==="
           make "${BUILD_OPTIONS[@]}" olddefconfig
+
+          echo "=== Kernel version: $(make "${BUILD_OPTIONS[@]}" kernelversion) ==="
+          echo "=== Compiling with $(nproc) threads ==="
           make "${BUILD_OPTIONS[@]}" Image
+
+          # Copy output
           mkdir -p ~/output
           cp out/arch/arm64/boot/Image ~/output/
           cp out/.config ~/output/kernel.config
+
+          echo "=== Build complete ==="
           ls -lh ~/output/
 
       - name: Upload kernel Image
@@ -125,7 +174,4 @@ jobs:
         with:
           name: dipper-kernel-config
           path: ~/output/kernel.config
-          retention-days: 30 do
-            [ -f "$p" ] || continue
-            echo "Applying: $p"
-            patch -p1 --dry-run < "$p" 2>/dev/null && patch -p1 < "$p" || echo "  Patch $p skipped"
+          retention-days: 30
