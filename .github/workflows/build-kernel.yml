@@ -125,6 +125,35 @@ jobs:
               || echo "  Patch $p skipped (already applied or not applicable)"
           done
 
+          # Fix: add stpcpy implementation for Clang (GCC builtin not available in Clang)
+          echo "Applying: stpcpy fix"
+          cat > /tmp/stpcpy.patch << 'ENDPATCH'
+--- a/lib/string.c
++++ b/lib/string.c
+@@ -426,6 +426,19 @@
+ EXPORT_SYMBOL(strcpy);
+ 
+ /**
++ * stpcpy - Copy a %NUL terminated string and return pointer to end
++ * @dest: Where to copy the string to
++ * @src: Where to copy the string from
++ */
++char *stpcpy(char *dest, const char *src)
++{
++	while ((*dest++ = *src++) != '\0')
++		/* nothing */;
++	return --dest;
++}
++EXPORT_SYMBOL(stpcpy);
++
++/**
+  * strncpy - Copy a length-limited, C-string
+  * @dest: Where to copy the string to
+  * @src: Where to copy the string from
+ENDPATCH
+          patch -p1 --dry-run < /tmp/stpcpy.patch 2>/dev/null && patch -p1 < /tmp/stpcpy.patch \
+            || echo "  stpcpy patch skipped (already applied or not applicable)"
+
       - name: Copy config fragments
         run: |
           cd ~/kernel_src
@@ -186,4 +215,3 @@ jobs:
           name: dipper-kernel-config
           path: ~/output/kernel.config
           retention-days: 30
-
