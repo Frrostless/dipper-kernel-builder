@@ -137,21 +137,18 @@ jobs:
       - name: Build kernel
         run: |
           cd ~/kernel_src
-          export PATH="$HOME/toolchains/proton-12/bin:$HOME/toolchains/aarch64-linaro-7.5/bin:$HOME/toolchains:$PATH"
+          # Linaro first so aarch64-linux-gnu-* tools are found before Proton
+          export PATH="$HOME/toolchains/aarch64-linaro-7.5/bin:$HOME/toolchains/proton-12/bin:$HOME/toolchains:$PATH"
           export LD_LIBRARY_PATH="$HOME/toolchains/proton-12/lib:$HOME/toolchains/proton-12/lib64:${LD_LIBRARY_PATH:-}"
 
           # Remove Proton Clang's 'as' to force Clang integrated assembler
           rm -f ~/toolchains/proton-12/bin/as
 
-          # Remove Proton Clang's x86_64 'ld' and symlink to Linaro's aarch64 linker
-          # This fixes VDSO linking: Proton's ld doesn't support aarch64linux emulation
-          rm -f ~/toolchains/proton-12/bin/ld
-          ln -sf "$HOME/toolchains/aarch64-linaro-7.5/bin/aarch64-linux-gnu-ld" ~/toolchains/proton-12/bin/ld
-
           BUILD_OPTIONS=(
             -j"$(nproc)"
             ARCH=arm64
             CC=clang
+            HOSTCC=gcc
             CROSS_COMPILE=aarch64-linux-gnu-
             CLANG_TRIPLE=aarch64-linux-gnu-
             LD=aarch64-linux-gnu-ld
@@ -189,3 +186,4 @@ jobs:
           name: dipper-kernel-config
           path: ~/output/kernel.config
           retention-days: 30
+
