@@ -66,15 +66,20 @@ jobs:
           ~/toolchains/aarch64-linaro-7.5/bin/aarch64-linux-gnu-gcc --version | head -1
 
       - name: Setup magiskboot
+        continue-on-error: true
         run: |
           cd ~/toolchains
           MAGISK_URL=$(curl -sL https://api.github.com/repos/topjohnwu/Magisk/releases/latest \
-            | jq -r '.assets[] | select(.name | test("Magisk-v.*\.apk$")) | .browser_download_url' \
+            | jq -r '.assets[] | select(.name | test("Magisk-v.*\\.apk$")) | .browser_download_url' \
             | head -1)
           echo "Magisk URL: $MAGISK_URL"
-          curl -Lf -o /tmp/magisk.apk "$MAGISK_URL"
-          cd /tmp && unzip -o magisk.apk "lib/x86_64/libmagiskboot.so"
-          cp lib/x86_64/libmagiskboot.so ~/toolchains/magiskboot
+          if [ -z "$MAGISK_URL" ]; then
+            echo "WARNING: Could not find Magisk APK URL. magiskboot will not be available."
+            exit 0
+          fi
+          curl -Lf -o /tmp/magisk.apk "$MAGISK_URL" || { echo "WARNING: Magisk download failed."; exit 0; }
+          cd /tmp && unzip -o magisk.apk "lib/x86_64/libmagiskboot.so" || { echo "WARNING: libmagiskboot.so not found in APK."; exit 0; }
+          cp lib/x86_64/libmagiskboot.so ~/toolchains/magiskboot || { echo "WARNING: Failed to copy magiskboot."; exit 0; }
           chmod +x ~/toolchains/magiskboot
           rm -rf /tmp/magisk.apk /tmp/lib
 
@@ -124,8 +129,8 @@ jobs:
         run: |
           cd ~/kernel_src
           mkdir -p arch/arm64/configs
-          cp config/droidspaces.config arch/arm64/configs/
-          cp config/custom.config arch/arm64/configs/
+          cp "$GITHUB_WORKSPACE/config/droidspaces.config" arch/arm64/configs/
+          cp "$GITHUB_WORKSPACE/config/custom.config" arch/arm64/configs/
           echo "Config files in arch/arm64/configs/:"
           ls -la arch/arm64/configs/ | grep -E "droidspaces|custom|dipper"
 
