@@ -1,0 +1,131 @@
+name: Build Dipper Kernel 4.9 with Droidspaces
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_branch:
+        description: 'Xiaomi kernel branch'
+        required: false
+        default: 'dipper-q-oss'
+        type: choice
+        options:
+          - dipper-o-oss
+          - dipper-p-oss
+          - dipper-q-oss
+      defconfig:
+        description: 'Defconfig name'
+        required: false
+        default: 'dipper_user_defconfig'
+        type: string
+
+env:
+  KBUILD_BUILD_USER: github-actions
+  KERNEL_BRANCH: ${{ inputs.kernel_branch || 'dipper-q-oss' }}
+  DEFCONFIG: ${{ inputs.defconfig || 'dipper_user_defconfig' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bc bison flex patch pkg-config git curl tar xz-utils zip unzip \
+            cpio rsync kmod perl python3 python-is-python3 libssl-dev libelf-dev pahole \
+            libncurses-dev zlib1g-dev libyaml-dev lz4 zstd device-tree-compiler \
+            jq wget
+
+      - name: Setup Proton Clang 12
+        run: |
+          mkdir -p ~/toolchains
+          cd ~/toolchains
+          git clone --depth=1 https://github.com/ravindu644/proton-12.git proton-12
+          ~/toolchains/proton-12/bin/clang --version | head -1
+
+      - name: Setup Linaro GCC 7.5
+        run: |
+          cd ~/toolchains
+          curl -Lf -o linaro.tar.xz "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/linaro-aarch64-7.5.tar.xz"
+          mkdir -p aarch64-linaro-7.5
+          tar -xJf linaro.tar.xz -C aarch64-linaro-7.5 --strip-components=1
+          rm linaro.tar.xz
+          ~/toolchains/aarch64-linaro-7.5/bin/aarch64-linux-gnu-gcc --version | head -1
+
+      - name: Setup magiskboot
+        run: |
+          cd ~/toolchains
+          MAGISK_URL=$(curl -sL https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | select(.name | test("Magisk-v.*\.apk$")) | .browser_download_url' | head -1)
+          curl -Lf -o /tmp/magisk.apk "$MAGISK_URL"
+          cd /tmp && unzip -o magisk.apk "lib/x86_64/libmagiskboot.so"
+          cp lib/x86_64/libmagiskboot.so ~/toolchains/magiskboot
+          chmod +x ~/toolchains/magiskboot
+          rm -rf /tmp/magisk.apk /tmp/lib
+
+      - name: Clone Xiaomi Mi 8 kernel source
+        run: |
+          git clone --depth=1 -b "$KERNEL_BRANCH" https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git ~/kernel_src
+          cd ~/kernel_src
+          make kernelversion 2>/dev/null || head -5 Makefile
+
+      - name: Download and apply patches
+        run: |
+          cd ~/kernel_src
+          mkdir -p ~/patches
+          DROID_BASE="https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI"
+          curl -Lf -o ~/patches/droid_01.patch "$DROID_BASE/01.fix_kernel_panic_in_xt_qtaguid.patch" 2>/dev/null || true
+          curl -Lf -o ~/patches/droid_02.patch "$DROID_BASE/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch" 2>/dev/null || true
+          for p in ~/patches/droid_*.patch; do
+            [ -f "$p" ] || continue
+            echo "Applying: $p"
+            patch -p1 --dry-run < "$p" 2>/dev/null && patch -p1 < "$p" || echo "  Patch $p skipped"
+          done
+          FIX_BASE="https://raw.githubusercontent.com/ravindu644/Android-Kernel-Tutorials/main/patches"
+          for p in "009.fix-Werror.patch" "018.yylloc.patch" "017.nuke_dirty_string.patch"; do
+            curl -Lf -o ~/patches/"$p" "$FIX_BASE/$p" 2>/dev/null || { echo "  Download failed: $p"; continue; }
+            echo "Applying: $p"
+            patch -p1 --dry-run < ~/patches/"$p" 2>/dev/null && patch -p1 < ~/patches/"$p" || echo "  Patch $p skipped"
+          done
+
+      - name: Copy config fragments
+        run: |
+          cd ~/kernel_src
+          mkdir -p arch/arm64/configs
+          cp config/droidspaces.config arch/arm64/configs/
+          cp config/custom.config arch/arm64/configs/
+
+      - name: Build kernel
+        run: |
+          cd ~/kernel_src
+          export PATH="$HOME/toolchains/proton-12/bin:$HOME/toolchains/aarch64-linaro-7.5/bin:$HOME/toolchains:$PATH"
+          export LD_LIBRARY_PATH="$HOME/toolchains/proton-12/lib:$HOME/toolchains/proton-12/lib64:${LD_LIBRARY_PATH:-}"
+          BUILD_OPTIONS=(-j"$(nproc)" ARCH=arm64 CC=clang CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- O="$HOME/kernel_src/out")
+          make "${BUILD_OPTIONS[@]}" "$DEFCONFIG" droidspaces.config custom.config
+          make "${BUILD_OPTIONS[@]}" olddefconfig
+          make "${BUILD_OPTIONS[@]}" Image
+          mkdir -p ~/output
+          cp out/arch/arm64/boot/Image ~/output/
+          cp out/.config ~/output/kernel.config
+          ls -lh ~/output/
+
+      - name: Upload kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: dipper-kernel-image
+          path: ~/output/Image
+          retention-days: 30
+
+      - name: Upload kernel config
+        uses: actions/upload-artifact@v4
+        with:
+          name: dipper-kernel-config
+          path: ~/output/kernel.config
+          retention-days: 30 do
+            [ -f "$p" ] || continue
+            echo "Applying: $p"
+            patch -p1 --dry-run < "$p" 2>/dev/null && patch -p1 < "$p" || echo "  Patch $p skipped"
