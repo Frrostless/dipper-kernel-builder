@@ -127,32 +127,22 @@ jobs:
 
           # Fix: add stpcpy implementation for Clang (GCC builtin not available in Clang)
           echo "Applying: stpcpy fix"
-          cat > /tmp/stpcpy.patch << 'ENDPATCH'
---- a/lib/string.c
-+++ b/lib/string.c
-@@ -426,6 +426,19 @@
- EXPORT_SYMBOL(strcpy);
- 
- /**
-+ * stpcpy - Copy a %NUL terminated string and return pointer to end
-+ * @dest: Where to copy the string to
-+ * @src: Where to copy the string from
-+ */
-+char *stpcpy(char *dest, const char *src)
-+{
-+	while ((*dest++ = *src++) != '\0')
-+		/* nothing */;
-+	return --dest;
-+}
-+EXPORT_SYMBOL(stpcpy);
-+
-+/**
-  * strncpy - Copy a length-limited, C-string
-  * @dest: Where to copy the string to
-  * @src: Where to copy the string from
-ENDPATCH
-          patch -p1 --dry-run < /tmp/stpcpy.patch 2>/dev/null && patch -p1 < /tmp/stpcpy.patch \
-            || echo "  stpcpy patch skipped (already applied or not applicable)"
+          python3 << 'EOF'
+          with open('lib/string.c', 'r') as f:
+              content = f.read()
+          func = '''
+          char *stpcpy(char *dest, const char *src)
+          {
+          \twhile ((*dest++ = *src++) != '\\0')
+          \t\t/* nothing */;
+          \treturn --dest;
+          }
+          EXPORT_SYMBOL(stpcpy);
+          '''
+          content = content.replace('EXPORT_SYMBOL(strcpy);', 'EXPORT_SYMBOL(strcpy);' + func)
+          with open('lib/string.c', 'w') as f:
+              f.write(content)
+          EOF
 
       - name: Copy config fragments
         run: |
