@@ -70,7 +70,7 @@ jobs:
         run: |
           cd ~/toolchains
           MAGISK_URL=$(curl -sL https://api.github.com/repos/topjohnwu/Magisk/releases/latest \
-            | jq -r '.assets[] | select(.name | test("Magisk-v.*\\.apk$")) | .browser_download_url' \
+            | jq -r '.assets[] | select(.name | test("Magisk-v.*\.apk$")) | .browser_download_url' \
             | head -1)
           echo "Magisk URL: $MAGISK_URL"
           if [ -z "$MAGISK_URL" ]; then
@@ -96,7 +96,6 @@ jobs:
           cd ~/kernel_src
           mkdir -p ~/patches
 
-          # Droidspaces non-GKI patches
           DROID_BASE="https://raw.githubusercontent.com/ravindu644/Droidspaces-OSS/main/Documentation/resources/kernel-patches/non-GKI"
 
           curl -Lf -o ~/patches/droid_01.patch "$DROID_BASE/01.fix_kernel_panic_in_xt_qtaguid.patch" 2>/dev/null || true
@@ -109,7 +108,6 @@ jobs:
               || echo "  Patch $p skipped (already applied or not applicable)"
           done
 
-          # Build fix patches
           FIX_BASE="https://raw.githubusercontent.com/ravindu644/Android-Kernel-Tutorials/main/patches"
           FIX_PATCHES=(
             "009.fix-Werror.patch"
@@ -140,7 +138,6 @@ jobs:
           export PATH="$HOME/toolchains/proton-12/bin:$HOME/toolchains/aarch64-linaro-7.5/bin:$HOME/toolchains:$PATH"
           export LD_LIBRARY_PATH="$HOME/toolchains/proton-12/lib:$HOME/toolchains/proton-12/lib64:${LD_LIBRARY_PATH:-}"
 
-          # Remove Proton Clang's 'as' to force Clang integrated assembler
           rm -f ~/toolchains/proton-12/bin/as
 
           BUILD_OPTIONS=(
@@ -162,7 +159,6 @@ jobs:
           echo "=== Compiling with $(nproc) threads ==="
           make "${BUILD_OPTIONS[@]}" Image
 
-          # Copy output
           mkdir -p ~/output
           cp out/arch/arm64/boot/Image ~/output/
           cp out/.config ~/output/kernel.config
@@ -183,4 +179,3 @@ jobs:
           name: dipper-kernel-config
           path: ~/output/kernel.config
           retention-days: 30
-concurrency: 
